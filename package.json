@@ -4,7 +4,7 @@
   "description": "An unofficial OpenAI-compatible API gateway and CLI tool powered by Playwright browser automation.",
   "main": "src/server.js",
   "bin": {
-    "clawapi": "./bin/clawapi.js"
+    "clawapi": "bin/clawapi.js"
   },
   "scripts": {
     "postinstall": "npx playwright install chromium",
