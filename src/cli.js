@@ -170,11 +170,29 @@ function cmdExport(providerName) {
 
   try {
     const zip = new AdmZip();
-    // Add the folder itself to the ZIP
-    zip.addLocalFolder(sessionDir, providerName);
+    
+    // We only need the essential session files to keep the ZIP clean and small.
+    // Browser junk like Cache/GPUCache/etc. are excluded.
+    const essentials = ['cookies.json', 'userAgent.txt'];
+    let added = 0;
+
+    essentials.forEach(file => {
+      const filePath = path.join(sessionDir, file);
+      if (fs.existsSync(filePath)) {
+        // Add to the ZIP, putting it inside the provider folder
+        zip.addLocalFile(filePath, providerName);
+        added++;
+      }
+    });
+
+    if (added === 0) {
+      _err(`No essential session files found in ${sessionDir}.`);
+      process.exit(1);
+    }
+
     zip.writeZip(archivePath);
 
-    _ok(`Session exported to ${W}${archivePath}${NC}`);
+    _ok(`Session exported to ${W}${archivePath}${NC} (${added} essential files included)`);
     _info(`Transfer this ZIP to another machine and run: ${G}clawapi import ${providerName} "${archivePath}"${NC}`);
   } catch (err) {
     _err(`Failed to export session: ${err.message}`);
