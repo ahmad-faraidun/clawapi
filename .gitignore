@@ -8,3 +8,6 @@ dist/
 build/
 .DS_Store
 Thumbs.db
+backup/
+test_extract/
+*.txt
