@@ -7,17 +7,27 @@
 
 ## Features
 - Provides an **OpenAI-compatible HTTP API** `POST /v1/chat/completions` directly from your local browser.
-- Automatically handles web authentication invisibly utilizing Playwright.
-- Cross-platform support (runs seamlessly as a detached background service on Windows, Mac, and Linux).
-- Colorful native custom CLI.
+- **Native HTTP Engine**: Optimized for Claude to bypass 403 blocks with real browser fingerprinting.
+- **Web Dashboard**: Stunning modern UI built with Glassmorphism to manage your providers visually.
+- **Session Portability**: Robust Export/Import system with built-in ZIP compression for moving sessions between machines/VPS.
+- **Cross-platform**: Runs seamlessly as a background service on Windows, Mac, and Linux.
+- **Colorful CLI**: Native custom CLI with real-time status and log tailing.
 
-## Installation
+## Quick Start
 
-Install globally via NPM:
-
+### 1. Install via NPM
 ```bash
 npm install -g clawapi
 ```
+
+### 2. Launch the Web Dashboard
+```bash
+clawapi ui start
+```
+Open **http://localhost:3001** to manage your sessions visually!
+
+### 3. CLI Usage (Optional)
+ClawAPI manages an internal registry of LLM providers.
 *(This commands installs ClawAPI and natively runs a postinstall hook downloading Playwright's Chromium binary needed for web automation.)*
 
 ## Usage
