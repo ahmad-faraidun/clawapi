@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ClawAPI Dashboard</title>
+    <!-- Modern Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Phosphor Icons for crisp, lightweight icons -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="blob blob-1"></div>
+    <div class="blob blob-2"></div>
+    
+    <div class="container fade-in">
+        <header>
+            <div class="brand">
+                <i class="ph ph-paw-print gradient-text logo-icon"></i>
+                <h1>ClawAPI <span class="badge">Dashboard</span></h1>
+            </div>
+            
+            <div class="server-status" id="serverStatusCard">
+                <div class="status-indicator" id="statusDot"></div>
+                <div class="status-info">
+                    <span class="status-label" id="statusLabel">Loading</span>
+                    <span class="status-pid" id="statusPid">--</span>
+                </div>
+            </div>
+        </header>
+
+        <main>
+            <section class="controls glass-panel">
+                <div class="section-header">
+                    <h2><i class="ph ph-sliders"></i> Server Controls</h2>
+                </div>
+                <div class="button-group-row">
+                    <div class="port-input-wrapper">
+                        <label for="serverPort">Port</label>
+                        <input type="number" id="serverPort" placeholder="8855" min="1" max="65535" class="glass-input">
+                    </div>
+                    <div class="button-group">
+                        <button id="btnStart" class="btn btn-primary interactive"><i class="ph ph-play"></i> Start Server</button>
+                        <button id="btnRestart" class="btn btn-secondary interactive"><i class="ph ph-arrows-clockwise"></i> Restart</button>
+                        <button id="btnStop" class="btn btn-danger interactive"><i class="ph ph-stop"></i> Stop Server</button>
+                    </div>
+                </div>
+            </section>
+
+            <div class="grid">
+                <section class="providers glass-panel">
+                    <div class="section-header space-between">
+                        <div class="header-main">
+                            <h2><i class="ph ph-plugs-connected"></i> Installed Providers</h2>
+                            <span class="count-badge" id="providerCount">0</span>
+                        </div>
+                        <div class="add-provider-wrapper">
+                            <select id="availableProviders" class="glass-select">
+                                <option value="" disabled selected>Add Provider...</option>
+                            </select>
+                            <button id="btnAddProvider" class="btn btn-icon interactive"><i class="ph ph-plus"></i></button>
+                        </div>
+                    </div>
+                    
+                    <div class="provider-list" id="providerList">
+                        <!-- Populated via JS -->
+                        <div class="empty-state">Loading providers...</div>
+                    </div>
+                </section>
+
+                <section class="system glass-panel">
+                    <div class="section-header">
+                        <h2><i class="ph ph-hard-drives"></i> Environment</h2>
+                    </div>
+                    <ul class="info-list">
+                        <li>
+                            <i class="ph ph-globe-hemisphere-west"></i>
+                            <div class="info-text">
+                                <span class="info-label">API Port</span>
+                                <span class="info-value" id="infoPort">--</span>
+                            </div>
+                        </li>
+                        <li>
+                            <i class="ph ph-desktop"></i>
+                            <div class="info-text">
+                                <span class="info-label">Platform</span>
+                                <span class="info-value" id="infoPlatform">--</span>
+                            </div>
+                        </li>
+                        <li>
+                            <i class="ph ph-link"></i>
+                            <div class="info-text">
+                                <span class="info-label">Base URL</span>
+                                <span class="info-value" id="infoUrl">http://localhost:--/v1</span>
+                            </div>
+                        </li>
+                    </ul>
+                </section>
+            </div>
+
+            <section class="logs glass-panel">
+                <div class="section-header">
+                    <h2><i class="ph ph-terminal-window"></i> Live Logs</h2>
+                    <button id="btnRefreshLogs" class="btn btn-icon interactive" title="Refresh Logs"><i class="ph ph-arrows-counter-clockwise"></i></button>
+                </div>
+                <div class="terminal-container">
+                    <pre id="logOutput">Fetching logs...</pre>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Custom Modal -->
+    <div class="modal-overlay" id="customModal" style="display: none;">
+        <div class="modal-content glass-panel">
+            <div class="modal-header">
+                <h3 id="modalTitle">Notice</h3>
+                <button class="btn btn-icon btn-sm interactive" id="btnModalClose"><i class="ph ph-x"></i></button>
+            </div>
+            <div class="modal-body">
+                <p id="modalMessage"></p>
+            </div>
+            <div class="modal-footer" id="modalFooter">
+                <!-- Buttons injected dynamically -->
+            </div>
+        </div>
+    </div>
+
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>

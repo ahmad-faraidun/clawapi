@@ -21,10 +21,14 @@
   "author": "GhostAPI Port",
   "license": "MIT",
   "dependencies": {
+    "adm-zip": "^0.5.16",
     "commander": "^12.0.0",
     "cors": "^2.8.5",
     "express": "^4.19.2",
-    "playwright": "^1.43.0",
+    "express-rate-limit": "^8.2.1",
+    "multer": "^2.1.0",
+    "node-fetch": "^2.7.0",
+    "playwright": "^1.58.2",
     "uuid": "^9.0.1"
   }
 }

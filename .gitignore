@@ -1,6 +1,10 @@
 node_modules/
-.venv/
 .env
-.clawapi/
 *.log
+*.zip
+tmp_uploads/
+.clawapi/
+dist/
+build/
 .DS_Store
+Thumbs.db

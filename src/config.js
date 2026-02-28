@@ -8,12 +8,13 @@ class Config {
     this.SESSIONS_DIR = path.join(this.ROOT_DIR, 'sessions');
     this.LOGS_DIR = path.join(this.ROOT_DIR, 'logs');
     this.PIDS_DIR = path.join(this.ROOT_DIR, 'pids');
+    this.TMP_UPLOADS_DIR = path.join(this.ROOT_DIR, 'tmp_uploads');
 
     this._ensureDirs();
   }
 
   _ensureDirs() {
-    [this.ROOT_DIR, this.SESSIONS_DIR, this.LOGS_DIR, this.PIDS_DIR].forEach(dir => {
+    [this.ROOT_DIR, this.SESSIONS_DIR, this.LOGS_DIR, this.PIDS_DIR, this.TMP_UPLOADS_DIR].forEach(dir => {
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
       }
@@ -22,7 +23,26 @@ class Config {
 
   hasSession(providerName) {
     const sessionPath = path.join(this.SESSIONS_DIR, providerName);
-    return fs.existsSync(sessionPath) && fs.readdirSync(sessionPath).length > 0;
+    const cookiePath = path.join(sessionPath, 'cookies.json');
+    if (!fs.existsSync(cookiePath)) return false;
+    try {
+      const content = fs.readFileSync(cookiePath, 'utf8').trim();
+      if (!content || content === '[]') return false;
+      
+      const cookies = JSON.parse(content);
+      if (!Array.isArray(cookies)) return false;
+
+      // Stricter check: Look for provider-specific auth cookies
+      if (providerName === 'claude') {
+        const hasSessionKey = cookies.some(c => c.name === 'sessionKey' || c.name === 'claude_session');
+        if (!hasSessionKey) return false;
+      }
+      
+      // General heuristic: auth sessions usually have more than just a few tracking cookies
+      return cookies.length > 3; // Reduced slightly but focused on specific keys above
+    } catch (e) {
+      return false;
+    }
   }
 
   isInstalled(providerName) {

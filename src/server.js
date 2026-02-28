@@ -1,8 +1,7 @@
 const express = require('express');
 const cors = require('cors');
-const { chromium } = require('playwright');
-const { v4: uuidv4 } = require('uuid');
 const path = require('path');
+const fs = require('fs');
 const config = require('./config');
 const registry = require('./registry');
 
@@ -11,8 +10,7 @@ app.use(express.json());
 app.use(cors());
 
 // Global state
-let _playwright = null;
-let _providers = {}; // { name: { page, ctx, busy_lock } }
+let _providers = {}; // { name: { cookies: string, userAgent: string, lock: Promise } }
 
 // ── Background Lifecycle ──────────────────────────────────────────────────────
 
@@ -21,24 +19,38 @@ async function initProvider(name, sessionDir) {
   if (!providerData) return;
 
   try {
-    const ctx = await chromium.launchPersistentContext(sessionDir, {
-      headless: true,
-      args: ['--no-sandbox', '--disable-blink-features=AutomationControlled'],
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      viewport: { width: 1280, height: 720 },
-    });
+    const cookiesPath = path.join(sessionDir, 'cookies.json');
+    if (!fs.existsSync(cookiesPath)) throw new Error("No cookies.json found. Please re-authenticate.");
+    
+    // Parse Playwright/Proxy cookies back into a standard cookie string
+    const cookieData = JSON.parse(fs.readFileSync(cookiesPath, 'utf-8'));
+    let cookieString = "";
+    
+    if (Array.isArray(cookieData)) {
+      // It's a Playwright cookie array
+      cookieString = cookieData.map(c => `${c.name}=${c.value}`).join('; ');
+    } else if (cookieData.cookieString) {
+      // Custom proxy format
+      cookieString = cookieData.cookieString;
+    }
 
-    const page = await ctx.newPage();
-    await page.addInitScript("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})");
+    let userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+    const uaPath = path.join(sessionDir, 'userAgent.txt');
+    if (fs.existsSync(uaPath)) {
+      userAgent = fs.readFileSync(uaPath, 'utf8').trim() || userAgent;
+      console.log(`[ClawAPI] Loaded custom User-Agent from file.`);
+    } else {
+      console.log(`[ClawAPI] WARN: No userAgent.txt found. Using default UA.`);
+    }
 
     _providers[name] = {
-      page,
-      ctx,
+      cookies: cookieString,
+      userAgent: userAgent,
       lock: Promise.resolve(), // Simple async queue
       providerData
     };
 
-    console.log(`[ClawAPI] OK  ${providerData.displayName} ready`);
+    console.log(`[ClawAPI] OK  ${providerData.displayName} ready (HTTP Mode)`);
   } catch (err) {
     console.error(`[ClawAPI] ERR Failed to init ${name}:`, err.message);
   }
@@ -46,7 +58,6 @@ async function initProvider(name, sessionDir) {
 
 async function closeProvider(name) {
   if (_providers[name]) {
-    await _providers[name].ctx.close();
     delete _providers[name];
   }
 }
@@ -72,71 +83,155 @@ async function ask(name, prompt) {
 
   return await withLock(name, async () => {
     const state = _providers[name];
-    const page = state.page;
-    const provider = state.providerData;
-    const sel = provider.selectors;
+    
+    // For now, we only have specialized logic for Claude
+    if (name === 'claude') {
+      try {
+        const baseHeaders = {
+          'Cookie': state.cookies,
+          'User-Agent': state.userAgent,
+          'Accept': 'application/json, text/event-stream',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Content-Type': 'application/json',
+          'Referer': 'https://claude.ai/chat',
+          'Origin': 'https://claude.ai',
+          'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+          'Sec-Ch-Ua-Mobile': '?0',
+          'Sec-Ch-Ua-Platform': '"Windows"',
+          'Sec-Fetch-Dest': 'empty',
+          'Sec-Fetch-Mode': 'cors',
+          'Sec-Fetch-Site': 'same-origin',
+          'anthropic-client-version': '5.4.3',
+          'anthropic-client-sha': 'da0583fac' // Mocked SHA
+        };
 
-    try {
-      await page.goto(provider.url, { timeout: 30000 });
-      await page.waitForTimeout(2000);
-
-      await page.waitForSelector(sel.input, { timeout: 15000 });
-      await page.waitForTimeout(300);
-      await page.click(sel.input);
-      await page.waitForTimeout(300);
-      
-      // Simulate slow typing for bots
-      for (let char of prompt) {
-        if (char === '\n') {
-          await page.keyboard.down('Shift');
-          await page.keyboard.press('Enter');
-          await page.keyboard.up('Shift');
-        } else {
-          await page.keyboard.insertText(char);
+        // 1. Get Organization ID
+        const orgsRes = await fetch('https://claude.ai/api/organizations', { headers: baseHeaders });
+        if (!orgsRes.ok) {
+           const body = await orgsRes.text().catch(() => "");
+           throw new Error(`Auth failed (HTTP ${orgsRes.status}). Please re-authenticate.`);
         }
-      }
-      
-      await page.waitForTimeout(500);
-      await page.keyboard.press('Enter');
-      await page.waitForTimeout(1000);
+        const orgs = await orgsRes.json();
+        const orgId = orgs[0].uuid;
 
-      // Wait for stop button to appear
-      for (let i = 0; i < 10; i++) {
-        const stop = await page.$(sel.stop_button);
-        if (stop) break;
-        await page.waitForTimeout(500);
-      }
-
-      // Wait for stop button to disappear
-      for (let i = 0; i < 120; i++) {
-        const stop = await page.$(sel.stop_button);
-        if (!stop) break;
-        await page.waitForTimeout(1000);
-      }
-
-      await page.waitForTimeout(1000);
-
-      for (const selector of sel.response) {
-        const els = await page.$$(selector);
-        if (els.length > 0) {
-          return (await els[els.length - 1].innerText()).trim();
+        // 2. Create conversation
+        const crypto = require('crypto');
+        const convId = crypto.randomUUID();
+        const createRes = await fetch(`https://claude.ai/api/organizations/${orgId}/chat_conversations`, {
+          method: 'POST',
+          headers: baseHeaders,
+          body: JSON.stringify({ uuid: convId, name: "ClawAPI Session" })
+        });
+        if (!createRes.ok) {
+           const body = await createRes.text().catch(() => "");
+           throw new Error(`Failed to create conversation (HTTP ${createRes.status})`);
         }
-      }
 
-      return "Response received but could not be extracted. Selectors may need updating.";
-    } catch (err) {
-      return `[${name} error]: ${err.message}`;
+        // 2.5 Probe Available Models (New Step)
+        let availableModels = [];
+        try {
+          const mRes = await fetch(`https://claude.ai/api/organizations/${orgId}/models`, { headers: baseHeaders });
+          if (mRes.ok) {
+             const models = await mRes.json();
+             availableModels = models.map(m => m.model);
+          }
+        } catch(e) {
+          // Model probe failed, using hardcoded fallback.
+        }
+
+        // 3. Completion with Auto-Detection
+        const modelsToTry = [
+          "claude-haiku-4-5-20251001", // User suggested
+          ...availableModels,
+          "claude-3-5-sonnet-20240620", 
+          "claude-3-haiku-20240307",
+          "claude-2.1",
+          "claude-2.0"
+        ];
+        let lastError = null;
+        let finalText = "";
+
+        for (const modelName of modelsToTry) {
+          const completionRes = await fetch(`https://claude.ai/api/organizations/${orgId}/chat_conversations/${convId}/completion`, {
+            method: 'POST',
+            headers: baseHeaders,
+            body: JSON.stringify({
+              prompt: prompt,
+              timezone: "UTC",
+              model: modelName,
+              attachments: [],
+              files: [],
+              rendering_mode: "markdown"
+            })
+          });
+
+          if (!completionRes.ok) {
+            const errBody = await completionRes.text().catch(() => "{}");
+            let errJson = {};
+            try { errJson = JSON.parse(errBody); } catch(e) {}
+            
+            if (errJson.error && errJson.error.type === "permission_error" && errJson.error.details && errJson.error.details.error_code === "model_not_available") {
+              lastError = `Model ${modelName} not available`;
+              continue;
+            }
+            
+            throw new Error(`Claude API rejected response (HTTP ${completionRes.status})`);
+          }
+
+          // 4. Parse the SSE Stream
+          const reader = completionRes.body.getReader();
+          const decoder = new TextDecoder();
+          let done = false;
+
+          while (!done) {
+            const { value, done: readerDone } = await reader.read();
+            done = readerDone;
+            if (value) {
+              const chunk = decoder.decode(value);
+              const lines = chunk.split('\n');
+              for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                  try {
+                    const data = JSON.parse(line.slice(6));
+                    if (data.completion) {
+                      finalText += data.completion;
+                    }
+                    if (data.stop_reason) done = true;
+                  } catch (e) {}
+                }
+              }
+            }
+          }
+          
+          if (finalText) break; // Success!
+        }
+
+        if (!finalText && lastError) throw new Error(lastError);
+        
+        return finalText.trim() || "[No response received from Claude]";
+
+        // Cleanup: Ideally we'd delete the temp conversation, but Claude limits deletion rate.
+        // We'll leave it for now.
+        
+        return finalText.trim() || "[No response received from Claude]";
+
+      } catch (err) {
+        return `[Claude error]: ${err.message}`;
+      }
     }
+
+    // Generic fallback for other providers (to be implemented)
+    return `[Provider ${name}]: Native HTTP engine not yet implemented for this provider.`;
   });
 }
 
 // ── API Routes ─────────────────────────────────────────────────────────────────
 
 app.get('/v1/models', (req, res) => {
-  const models = registry.allNames().map(name => {
+  const models = [];
+  registry.allNames().forEach(name => {
     const data = registry.get(name);
-    return {
-      id: `clawapi/${name}`,
+    const baseModel = {
       object: 'model',
       created: 1677610602,
       owned_by: 'clawapi',
@@ -146,6 +241,8 @@ app.get('/v1/models', (req, res) => {
       active: !!_providers[name],
       authenticated: config.hasSession(name),
     };
+    models.push({ id: `clawapi/${name}`, ...baseModel });
+    models.push({ id: name, ...baseModel });
   });
   res.json({ object: 'list', data: models });
 });
@@ -190,10 +287,10 @@ app.post('/v1/chat/completions', async (req, res) => {
   try {
     const responseText = await ask(providerName, prompt);
     res.json({
-      id: `chatcmpl-${uuidv4()}`,
+      id: `chatcmpl-${Date.now()}`,
       object: "chat.completion",
       created: Math.floor(Date.now() / 1000),
-      model: `clawapi/${providerName}`,
+      model: modelRaw,
       choices: [{
         index: 0,
         message: { role: "assistant", content: responseText },

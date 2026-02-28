@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawn, execSync } = require('child_process');
 const { chromium } = require('playwright');
+const AdmZip = require('adm-zip');
 const config = require('./config');
 const registry = require('./registry');
 const server = require('./server');
@@ -33,25 +34,15 @@ function getPid() {
   const pid = parseInt(content, 10);
 
   // Check if process actually exists
-  if (process.platform === 'win32') {
-    try {
-      const out = execSync(`tasklist /FI "PID eq ${pid}" /NH`).toString();
-      if (!out.includes(String(pid))) {
-        fs.unlinkSync(pf);
-        return null;
-      }
-      return pid;
-    } catch {
-      return null;
+  try {
+    process.kill(pid, 0);
+    return pid;
+  } catch (e) {
+    // If ESRCH, process doesn't exist.
+    if (e.code === 'ESRCH') {
+      if (fs.existsSync(pf)) fs.unlinkSync(pf);
     }
-  } else {
-    try {
-      process.kill(pid, 0);
-      return pid;
-    } catch {
-      fs.unlinkSync(pf);
-      return null;
-    }
+    return null;
   }
 }
 
@@ -95,7 +86,7 @@ async function cmdAuth(providerName) {
   }
 
   const p = registry.get(providerName);
-  _info(`Authenticating ${W}${p.displayName}${NC}...`);
+  _info(`Authenticating ${W}${p.displayName}${NC} (GUI Mode)...`);
 
   const sessionDir = path.join(config.SESSIONS_DIR, providerName);
 
@@ -108,21 +99,132 @@ async function cmdAuth(providerName) {
   });
 
   const page = await browser.newPage();
+  let userAgent = "";
+  try {
+      userAgent = await page.evaluate(() => navigator.userAgent);
+      const uaPath = path.join(sessionDir, 'userAgent.txt');
+      fs.writeFileSync(uaPath, userAgent, 'utf8');
+      _ok(`Captured User-Agent signature.`);
+  } catch(e) {}
+  
   await page.goto(p.loginUrl);
   console.log();
   _info(`Please log in to ${C}${p.displayName}${NC} in the browser window.`);
   _dim(`Close the browser when you are fully logged in and can chat.`);
 
-  browser.on('close', () => {
+  let lastCookies = [];
+  const pollInterval = setInterval(async () => {
+    try {
+      const c = await browser.cookies();
+      // Usually auth sessions have multiple cookies.
+      if (c && c.length > 2) {
+        lastCookies = c;
+      }
+    } catch(e) {}
+  }, 1000);
+
+  browser.on('close', async () => {
+    clearInterval(pollInterval);
     console.log();
-    if (config.hasSession(providerName)) {
-      _ok(`Session saved for ${C}${p.displayName}${NC}.`);
+    
+    if (lastCookies.length > 5) {
+      try {
+        const cookiePath = path.join(sessionDir, 'cookies.json');
+        fs.writeFileSync(cookiePath, JSON.stringify(lastCookies, null, 2), 'utf8');
+        
+        const uaPath = path.join(sessionDir, 'userAgent.txt');
+        if (userAgent) fs.writeFileSync(uaPath, userAgent, 'utf8');
+
+        _ok(`Session saved for ${C}${p.displayName}${NC} in HTTP-native format.`);
+      } catch (err) {
+        _warn(`Failed to save session data: ${err.message}`);
+      }
     } else {
-      _warn(`Browser closed but no session was saved.`);
+      _warn(`Browser closed but no valid session was detected. You must fully log in.`);
+      // Force cleanup of the entire session directory to prevent 'ghost' sessions
+      if (fs.existsSync(sessionDir)) {
+          try {
+            fs.rmSync(sessionDir, { recursive: true, force: true });
+          } catch(e) {
+            _warn(`Could not clean up session directory: ${e.message}`);
+          }
+      }
     }
     process.exit(0);
   });
 }
+
+function cmdExport(providerName) {
+  if (!registry.exists(providerName)) {
+    _err(`Unknown provider: ${C}${providerName}${NC}`);
+    process.exit(1);
+  }
+  const sessionDir = path.join(config.SESSIONS_DIR, providerName);
+  const archivePath = path.resolve(process.cwd(), `${providerName}_session.zip`);
+  
+  _info(`Exporting session for ${C}${providerName}${NC}...`);
+  if (!fs.existsSync(sessionDir)) {
+    _err(`No active session found for this provider.`);
+    process.exit(1);
+  }
+
+  try {
+    const zip = new AdmZip();
+    // Add the folder itself to the ZIP
+    zip.addLocalFolder(sessionDir, providerName);
+    zip.writeZip(archivePath);
+
+    _ok(`Session exported to ${W}${archivePath}${NC}`);
+    _info(`Transfer this ZIP to another machine and run: ${G}clawapi import ${providerName} "${archivePath}"${NC}`);
+  } catch (err) {
+    _err(`Failed to export session: ${err.message}`);
+    process.exit(1);
+  }
+}
+
+function cmdImport(providerName, filePath) {
+  if (!registry.exists(providerName)) {
+    _err(`Unknown provider: ${C}${providerName}${NC}`);
+    process.exit(1);
+  }
+  
+  const absFilePath = path.resolve(process.cwd(), filePath);
+  if (!fs.existsSync(absFilePath)) {
+    _err(`Cannot find export file: ${W}${absFilePath}${NC}`);
+    process.exit(1);
+  }
+
+  const sessionDir = path.join(config.SESSIONS_DIR, providerName);
+  _info(`Importing session for ${C}${providerName}${NC}...`);
+
+  // Wipe old session if exists
+  if (fs.existsSync(sessionDir)) {
+    try {
+      fs.rmSync(sessionDir, { recursive: true, force: true });
+    } catch (e) {
+      _warn(`Could not fully clean old session: ${e.message}`);
+    }
+  }
+
+  try {
+    const zip = new AdmZip(absFilePath);
+    zip.extractAllTo(config.SESSIONS_DIR, true);
+
+    // Verify import
+    if (config.hasSession(providerName)) {
+      config.setInstalled(providerName); 
+      _ok(`Session successfully imported for ${C}${providerName}${NC}.`);
+    } else {
+      _err(`Import completed but session files (cookies.json) appear missing or invalid.`);
+      process.exit(1);
+    }
+  } catch(err) {
+     _err(`Failed to import session: ${err.message}`);
+     process.exit(1);
+  }
+}
+
+// Proxy command removed at user request
 
 function cmdStart(options) {
   if (isServerRunning()) {
@@ -290,21 +392,71 @@ function cmdRm(providerName) {
   _ok(`Removed ${C}${providerName}${NC}.`);
 }
 
-function cmdPicoclaw() {
+async function cmdTest(providerName) {
+  if (!config.isInstalled(providerName)) {
+    _err(`Provider ${C}${providerName}${NC} is not installed.`);
+    process.exit(1);
+  }
+
   const port = config.getPort();
-  const snippet = `
-# Add this to your picoclaw config or OpenAI compliant client
-{
-  "api_key": "sk-clawapi",
-  "api_base": "http://localhost:${port}/v1",
-  "model": "clawapi/claude"
-}`;
-  console.log(snippet);
+  if (!isServerRunning()) {
+    _err(`ClawAPI does not seem to be running on this port (${port}).`);
+    _info(`Start it first using: ${G}clawapi start${NC}`);
+    process.exit(1);
+  }
+
+  _info(`Testing ${C}${providerName}${NC} via localhost:${port}...`);
+  // Simple animation for CLI loading
+  const P = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+  let x = 0;
+  const loader = setInterval(() => {
+    process.stdout.write(`\r  ${B}${P[x++]}${NC}  Waiting for response...`);
+    x &= 9;
+  }, 100);
+
+  try {
+    const res = await fetch(`http://localhost:${port}/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer sk-clawapi-test"
+      },
+      body: JSON.stringify({
+        model: providerName,
+        messages: [{ role: "user", content: "say the exact phrase: 'ClawAPI works'" }]
+      })
+    });
+
+    const data = await res.json();
+    clearInterval(loader);
+    process.stdout.write(`\r\x1b[K`); // clear line
+
+    if (!res.ok) {
+      _err(`API Error: ${data.error?.message || res.statusText}`);
+      process.exit(1);
+    }
+    
+    const reply = data.choices?.[0]?.message?.content?.trim();
+    if (reply) {
+      _ok(`Received: ${W}${reply}${NC}`);
+    } else {
+      _warn(`Received empty valid response or misconfigured payload.`);
+      console.dir(data, {depth: null, colors: true});
+    }
+
+  } catch (err) {
+    clearInterval(loader);
+    process.stdout.write(`\r\x1b[K`);
+    _err(`Request failed: ${err.message}`);
+    process.exit(1);
+  }
 }
 
 module.exports = {
   cmdAdd,
   cmdAuth,
+  cmdExport,
+  cmdImport,
   cmdStart,
   cmdStop,
   cmdStatus,
@@ -313,7 +465,7 @@ module.exports = {
   cmdList,
   cmdAvailable,
   cmdRm,
-  cmdPicoclaw
+  cmdTest
 };
 
 // Internal boot hook for detached process
