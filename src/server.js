@@ -154,12 +154,13 @@ app.post('/v1/chat/completions', async (req, res) => {
   const body = req.body;
   const modelRaw = body.model || '';
 
-  if (!modelRaw.startsWith('clawapi/')) {
+  if (!modelRaw) {
     const available = registry.allNames().join(', ');
-    return res.status(400).json({ error: { message: `Missing 'model' field. Use format: clawapi/<provider>  e.g. clawapi/claude | Available: ${available}` } });
+    return res.status(400).json({ error: { message: `Missing 'model' field. Use: claude, clawapi/claude | Available: ${available}` } });
   }
 
-  const providerName = modelRaw.replace('clawapi/', '');
+  // Accept both "clawapi/claude" and plain "claude"
+  const providerName = modelRaw.includes('/') ? modelRaw.split('/').pop() : modelRaw;
 
   if (!registry.exists(providerName)) {
     return res.status(404).json({ error: { message: `Provider '${providerName}' does not exist in the ClawAPI registry.` } });
@@ -207,6 +208,11 @@ app.post('/v1/chat/completions', async (req, res) => {
 
 // Startup hook wrapper internally exposed to src/cli.js
 async function startServer(port) {
+  // Write our own PID so the CLI can track us reliably
+  const fs2 = require('fs');
+  const pidPath = path.join(config.PIDS_DIR, 'server.pid');
+  fs2.writeFileSync(pidPath, String(process.pid), 'utf-8');
+
   const installed = registry.allNames().filter(n => config.isInstalled(n));
   const authed = installed.filter(n => config.hasSession(n));
   
@@ -217,7 +223,7 @@ async function startServer(port) {
 
   await Promise.all(tasks);
 
-  app.listen(port, () => {
+  app.listen(port, '127.0.0.1', () => {
     console.log(`[ClawAPI] HTTP server running on http://127.0.0.1:${port}`);
   });
 }

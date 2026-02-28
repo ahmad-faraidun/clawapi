@@ -1,6 +1,6 @@
 {
   "name": "clawapi",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "An unofficial OpenAI-compatible API gateway and CLI tool powered by Playwright browser automation.",
   "main": "src/server.js",
   "bin": {

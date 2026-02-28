@@ -135,21 +135,57 @@ function cmdStart(options) {
 
   _info(`Starting ClawAPI on port ${W}${port}${NC}...`);
 
-  const logFile = fs.openSync(path.join(config.LOGS_DIR, 'clawapi.log'), 'a');
-  
-  const childArgs = [path.join(__dirname, '..', 'bin', 'clawapi.js'), '--internal-server-run', String(port)];
-  
-  const spawnOpts = {
-    detached: true,
-    stdio: ['ignore', logFile, logFile],
-    windowsHide: true, // Matches CREATE_NO_WINDOW
-  };
+  const logPath = path.join(config.LOGS_DIR, 'clawapi.log');
+  const scriptPath = path.join(__dirname, '..', 'bin', 'clawapi.js');
+  const childArgs = [scriptPath, '--internal-server-run', String(port)];
 
-  const proc = spawn(process.execPath, childArgs, spawnOpts);
-  proc.unref();
+  if (process.platform === 'win32') {
+    // On Windows, use PowerShell Start-Process -WindowStyle Hidden to launch node
+    // completely invisibly as a fully detached background process.
+    // The node server writes its own PID to file on startup (in server.js).
+    const nodeExe = process.execPath;
+    const pidPath = _pidFile();
+    
+    // Clean any stale PID file
+    if (fs.existsSync(pidPath)) fs.unlinkSync(pidPath);
 
-  fs.writeFileSync(_pidFile(), String(proc.pid), 'utf-8');
-  _ok(`Server started in background (PID ${W}${proc.pid}${NC}).`);
+    const argsList = childArgs.map(a => `'${a}'`).join(',');
+    const psCmd = `Start-Process -FilePath '${nodeExe}' -ArgumentList ${argsList} -WindowStyle Hidden -RedirectStandardOutput '${logPath}' -RedirectStandardError '${logPath}.err'`;
+
+    try {
+      execSync(`powershell -NoProfile -Command "${psCmd}"`, { windowsHide: true, stdio: 'ignore' });
+    } catch (e) {
+      _err(`Failed to start server: ${e.message}`);
+      process.exit(1);
+    }
+
+    // Wait for the server to write its own PID file on startup
+    setTimeout(() => {
+      if (fs.existsSync(pidPath)) {
+        const pid = fs.readFileSync(pidPath, 'utf-8').trim();
+        if (pid && /^\d+$/.test(pid)) {
+          _ok(`Server started in background (PID ${W}${pid}${NC}).`);
+        } else {
+          _ok(`Server started in background.`);
+        }
+      } else {
+        _ok(`Server started in background.`);
+      }
+    }, 5000);
+  } else {
+    // Unix: spawn directly, no console window issue
+    const logFile = fs.openSync(logPath, 'a');
+    const spawnOpts = {
+      detached: true,
+      stdio: ['ignore', logFile, logFile],
+    };
+
+    const proc = spawn(process.execPath, childArgs, spawnOpts);
+    proc.unref();
+
+    fs.writeFileSync(_pidFile(), String(proc.pid), 'utf-8');
+    _ok(`Server started in background (PID ${W}${proc.pid}${NC}).`);
+  }
 }
 
 function cmdStop() {
