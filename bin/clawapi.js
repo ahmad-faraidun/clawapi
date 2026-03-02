@@ -55,27 +55,26 @@ ${C_HEAD}Web UI:${NC}
 ${C_HEAD}Providers:${NC}
   ${C_PROG}clawapi ${C_CMD}list               ${C_DESC}List installed providers${NC}
   ${C_PROG}clawapi ${C_CMD}available          ${C_DESC}List all providers in the registry${NC}
-  ${C_PROG}clawapi ${C_CMD}add <provider>     ${C_DESC}Install a provider${NC}
+  ${C_PROG}clawapi ${C_CMD}add <provider>     ${C_DESC}Install a provider (e.g. claude)${NC}
   ${C_PROG}clawapi ${C_CMD}rm <provider>      ${C_DESC}Remove an installed provider${NC}
-  ${C_PROG}clawapi ${C_CMD}auth <provider>    ${C_DESC}Log in / re-authenticate a provider${NC}
+  ${C_PROG}clawapi ${C_CMD}login <provider>    ${C_DESC}Log in / authenticate a provider${NC}
   ${C_PROG}clawapi ${C_CMD}export <provider>  ${C_DESC}Export session for headless VPS${NC}
   ${C_PROG}clawapi ${C_CMD}import <provider> <file> ${C_DESC}Import session to headless VPS${NC}
 
 ${C_HEAD}Utilities:${NC}
   ${C_PROG}clawapi ${C_CMD}logs               ${C_DESC}Watch server logs (live)${NC}
-  ${C_PROG}clawapi ${C_CMD}logs -n 100        ${C_DESC}Show last 100 lines${NC}
   ${C_PROG}clawapi ${C_CMD}test <provider>    ${C_DESC}Test a provider with a live request${NC}
   ${C_PROG}clawapi ${C_CMD}help               ${C_DESC}Show this help${NC}
 
 ${C_HEAD}Examples:${NC}
   ${C_PROG}clawapi ${C_CMD}add claude         ${C_DESC}Install Claude${NC}
-  ${C_PROG}clawapi ${C_CMD}auth claude        ${C_DESC}Log into Claude (opens browser)${NC}
+  ${C_PROG}clawapi ${C_CMD}login claude       ${C_DESC}Log into Claude (opens browser)${NC}
   ${C_PROG}clawapi ${C_CMD}start              ${C_DESC}Start the server${NC}
   ${C_PROG}clawapi ${C_CMD}status             ${C_DESC}Check everything is running${NC}
 
 ${C_HEAD}API Usage:${NC}
   ${C_PROG}POST ${C_CMD}http://localhost:8855/v1/chat/completions${NC}
-  ${C_PROG}Body:${C_DESC} {"model": "clawapi/claude", "messages": [...]}${NC}
+  ${C_PROG}Body:${C_DESC} {"model": "claude", "messages": [...]}${NC}
 `;
 
 program.helpInformation = function() {
@@ -102,7 +101,7 @@ program.command('add <provider>').action(cli.cmdAdd);
 program.command('rm <provider>').action(cli.cmdRm);
 program.command('list').action(cli.cmdList);
 program.command('available').action(cli.cmdAvailable);
-program.command('auth <provider>').action(cli.cmdAuth);
+program.command('auth <provider>').alias('login').action(cli.cmdAuth);
 program.command('export <provider>').action(cli.cmdExport);
 program.command('import <provider> <file>').action(cli.cmdImport);
 program.command('start').option('-p, --port <number>').action(cli.cmdStart);

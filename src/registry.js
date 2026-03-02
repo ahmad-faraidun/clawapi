@@ -18,6 +18,32 @@ const REGISTRY = {
     },
     notes: 'Free tier available. Login via email or Google.'
   }
+  // chatgpt: {
+  //   name: 'chatgpt',
+  //   displayName: 'ChatGPT',
+  //   vendor: 'OpenAI',
+  //   url: 'https://chat.openai.com',
+  //   loginUrl: 'https://chat.openai.com/auth/login',
+  //   selectors: {
+  //     input: '#prompt-textarea',
+  //     stop_button: '[aria-label="Stop generating"]',
+  //     response: ['.markdown', '.prose']
+  //   },
+  //   notes: 'Requires OpenAI account.'
+  // },
+  // gemini: {
+  //   name: 'gemini',
+  //   displayName: 'Gemini',
+  //   vendor: 'Google',
+  //   url: 'https://gemini.google.com',
+  //   loginUrl: 'https://gemini.google.com/app',
+  //   selectors: {
+  //     input: '.ql-editor',
+  //     stop_button: '[aria-label="Stop generation"]',
+  //     response: ['model-response', '.message-content']
+  //   },
+  //   notes: 'Requires Google account.'
+  // }
 };
 
 function get(name) {

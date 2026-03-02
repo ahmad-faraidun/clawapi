@@ -72,7 +72,7 @@ async function cmdAdd(providerName) {
   }
   config.setInstalled(providerName);
   _ok(`Added ${C}${providerName}${NC}.`);
-  _info(`Next: ${G}clawapi auth ${providerName}${NC}`);
+  _info(`Next: ${G}clawapi login ${providerName}${NC}`);
 }
 
 async function cmdAuth(providerName) {
